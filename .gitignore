@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.DS_Store
+.streamlit/secrets.toml
+input_config.xlsx
+*_Regression_Filled.xlsx
+Regression_DB_Output.xlsx
+*.zip
