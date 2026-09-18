@@ -23,7 +23,7 @@ st.set_page_config(
 )
 
 # ============================================================
-# CONSTANTS
+# CONSTANTS & DEFAULTS
 # ============================================================
 INST_RULES = {
     "Term Loan":                     {"rev": False, "sub": True,  "curr": "INR"},
@@ -73,13 +73,25 @@ def gen_lender_wb(lenders):
                "Related Party","Related Party Dropdown","Lender Class","Lender Type",
                "Lender Sub Type","TAN","Legal Entity Identifier","ID"])
     for i, l in enumerate(lenders, 1):
-        ws.append([l["is_bank"],l["bank_id"],l["short"],l["full"],l["loc"],l["pan"],l["grp"],
-                   "No","Parent - Holding",l["cls"],l["typ"],l["sub"],
-                   f"TAN{i:05d}",f"LEI{i:05d}",f"LEN-{i:03d}"])
+        ws.append([
+            l.get("is_bank", "Yes"),
+            l.get("bank_id", ""),
+            l.get("short", ""),
+            l.get("full", ""),
+            l.get("loc", ""),
+            l.get("pan", ""),
+            l.get("grp", ""),
+            "No","Parent - Holding",
+            l.get("cls", "Bank"),
+            l.get("typ", "Private Bank"),
+            l.get("sub", "Scheduled Commercial Bank"),
+            f"TAN{i:05d}",f"LEI{i:05d}",f"LEN-{i:03d}"
+        ])
     ws2 = wb.create_sheet("Demat Details")
     ws2.append(["DP Name","DP ID","Demat Account","Scheme Name","Client ID","Depository","ID"])
     for i, l in enumerate(lenders, 1):
-        ws2.append([f"{l['short']} DP",f"DP{i:04d}",f"DEMAT{i:06d}","Scheme A",f"CL{i:05d}","NSDL",f"LEN-{i:03d}"])
+        short_name = l.get("short") or "Lender"
+        ws2.append([f"{short_name} DP",f"DP{i:04d}",f"DEMAT{i:06d}","Scheme A",f"CL{i:05d}","NSDL",f"LEN-{i:03d}"])
     ws3 = wb.create_sheet("Contact Details")
     ws3.append(["Contact Person","Contact Number","Landline Number","Email Address","Designation","ID"])
     for i, l in enumerate(lenders, 1):
@@ -87,8 +99,12 @@ def gen_lender_wb(lenders):
     ws4 = wb.create_sheet("Bank Account Details")
     ws4.append(["PAN","Account Name","Name","Branch","Address","IFSC Code","MICR Code","Account Use","Account Number","ID"])
     for i, l in enumerate(lenders, 1):
-        ws4.append([l["pan"],l["full"],l["full"],f"{l['loc']} Main",f"{l['loc']} Address",
-                    f"{l['short'][:4].upper():4s}000{i:04d}",f"56024{i:05d}","Current",f"{10000+i}",f"LEN-{i:03d}"])
+        short_name = l.get("short") or "LEND"
+        full_name = l.get("full", "")
+        loc = l.get("loc") or "Main"
+        pan = l.get("pan", "")
+        ws4.append([pan, full_name, full_name, f"{loc} Main", f"{loc} Address",
+                    f"{short_name[:4].upper():4s}000{i:04d}", f"56024{i:05d}", "Current", f"{10000+i}", f"LEN-{i:03d}"])
     ws5 = wb.create_sheet("Address Segment Details")
     ws5.append(["Office Location Type","Mark as Default","Office DUNS Number","Address Line 1",
                 "Address Line 2","Address Line 3","City / Town","District",
@@ -96,13 +112,18 @@ def gen_lender_wb(lenders):
                 "Email Address","Telephone Area Code","Telephone Number(s)",
                 "Fax Area Code","Fax Number(s)","ID"])
     for i, l in enumerate(lenders, 1):
-        ws5.append(["Registered Office","Yes",f"DUNS{i:05d}",l["loc"],"Line 2","",l["loc"],l["loc"],
-                    "Maharashtra" if l["loc"]=="Mumbai" else "Karnataka","India",
-                    "400001" if l["loc"]=="Mumbai" else "560001","27XXXXX1Z5",
+        loc = l.get("loc") or "Mumbai"
+        pan = l.get("pan") or "AAACH1234E"
+        ws5.append(["Registered Office","Yes",f"DUNS{i:05d}",loc,"Line 2","",loc,loc,
+                    "Maharashtra" if loc=="Mumbai" else "Karnataka","India",
+                    "400001" if loc=="Mumbai" else "560001",
+                    f"{pan[:5]}1234E1Z5" if len(pan)>=5 else "27XXXXX1Z5",
                     f"98{i:08d}",f"info{i}@test.com","080",f"2{i:07d}","080",f"2{i:07d}",f"LEN-{i:03d}"])
     return wb
 
-def gen_sanction_wb(n_sanctions, fy, start, company_name, lenders, instruments):
+def gen_sanction_wb(n_sanctions, fy, start, company_name, lenders, instruments, inst_rules=None):
+    if inst_rules is None:
+        inst_rules = INST_RULES
     wb = Workbook()
     wb.remove(wb.active)
     basic, main, sub = [], [], []
@@ -110,9 +131,9 @@ def gen_sanction_wb(n_sanctions, fy, start, company_name, lenders, instruments):
         l = lenders[i % len(lenders)]
         sref = f"SM-{fy}-{str(i+1).zfill(5)}"
         picked = random.sample(instruments, min(random.choice([1,2,2,3]), len(instruments)))
-        basic.append({"ref":sref,"lender":l["full"],"date":add_days(start,i*2),"company":company_name})
+        basic.append({"ref":sref,"lender":l.get("full", ""),"date":add_days(start,i*2),"company":company_name})
         for j, inst in enumerate(picked, 1):
-            rule = INST_RULES[inst]
+            rule = inst_rules.get(inst, {"rev": False, "sub": True, "curr": "INR"})
             nature = pick(["Revolving","Non-Revolving"]) if rule["rev"] else "Non-Revolving"
             amt = pick([1000000,2500000,5000000,7500000,10000000])
             has_sub = "Yes" if (rule["sub"] and random.random()<0.4) else "No"
@@ -165,10 +186,11 @@ def gen_wcdl_wb(n_deals, fy, company_name, lenders):
         s = sanctions[i]
         ctype = pick(COUPON_TYPES)
         settle = add_days("2026-02-01", i*3)
+        lender_full = s["lender"].get("full", "")
         deals.append({
             "ID":f"WC-{str(i+1).zfill(3)}","Is_Rollover":pick(["Yes","No"]),
             "Rollover_Type":pick(["With Interest","Without Interest"]),
-            "Settlement_Date":settle,"Lender":s["lender"]["full"],
+            "Settlement_Date":settle,"Lender":lender_full,
             "Curr_Acc":str(10001+(i*2)),"Loan_Acc":str(20001+(i*2)),
             "Loan_Acc_No":f"LAN{i+1:08d}","Nature":pick(["Secured","Unsecured"]),
             "Security_Cover":pick([0,1,1,1]),"Company":company_name,
@@ -264,38 +286,91 @@ fiscal_year = st.sidebar.number_input("Fiscal Year (e.g. 26 for 2026)", min_valu
 start_date = st.sidebar.text_input("Start Date (YYYY-MM-DD)", value="2026-01-05")
 random_seed = st.sidebar.number_input("Random Seed", min_value=1, max_value=99999, value=42)
 
-# --- Lenders Selection ---
-st.sidebar.subheader("Lenders")
-st.sidebar.markdown("*Tick the lenders you want to use:*")
+# Prepare session state for editable Lenders and Instruments DataFrames
+if "lenders_df" not in st.session_state:
+    st.session_state["lenders_df"] = pd.DataFrame(DEFAULT_LENDERS)
 
-selected_lenders = []
-for l in DEFAULT_LENDERS:
-    if st.sidebar.checkbox(l["full"], value=True, key=f"lender_{l['full']}"):
-        selected_lenders.append(l)
+if "inst_df" not in st.session_state:
+    inst_list = []
+    for inst, r in INST_RULES.items():
+        inst_list.append({
+            "Instrument": inst,
+            "Revolving": r["rev"],
+            "Has Sub Limits": r["sub"],
+            "Currency": r["curr"]
+        })
+    st.session_state["inst_df"] = pd.DataFrame(inst_list)
 
-if not selected_lenders:
-    st.sidebar.error("⚠️ Select at least 1 lender")
+# --- Lenders Dropdown Selection in Sidebar ---
+st.sidebar.subheader("Lenders Selection")
+all_lender_names = st.session_state["lenders_df"]["full"].tolist()
+selected_lender_names = st.sidebar.multiselect(
+    "Select Lenders:",
+    options=all_lender_names,
+    default=all_lender_names
+)
 
-# --- Instruments Selection ---
-st.sidebar.subheader("Instruments")
-st.sidebar.markdown("*Tick the instruments you want:*")
-
-selected_instruments = []
-for inst in INST_RULES.keys():
-    if st.sidebar.checkbox(inst, value=True, key=f"inst_{inst}"):
-        selected_instruments.append(inst)
-
-if not selected_instruments:
-    st.sidebar.error("⚠️ Select at least 1 instrument")
+# --- Instruments Dropdown Selection in Sidebar ---
+st.sidebar.subheader("Instruments Selection")
+all_inst_names = st.session_state["inst_df"]["Instrument"].tolist()
+selected_inst_names = st.sidebar.multiselect(
+    "Select Instruments:",
+    options=all_inst_names,
+    default=all_inst_names
+)
 
 # --- Main Area ---
 col1, col2, col3 = st.columns(3)
 with col1:
-    st.metric("Lenders Selected", len(selected_lenders))
+    st.metric("Lenders Selected", len(selected_lender_names))
 with col2:
-    st.metric("Instruments Selected", len(selected_instruments))
+    st.metric("Instruments Selected", len(selected_inst_names))
 with col3:
     st.metric("Sanctions to Generate", n_sanctions)
+
+st.markdown("---")
+
+# --- Interactive Editable Tables Section ---
+st.subheader("✏️ Editable Configuration & Data")
+st.markdown("You can directly edit lender details or instrument rules below, or add new ones:")
+
+tab1, tab2 = st.tabs(["🏢 Editable Lenders Master", "📜 Editable Instruments Master"])
+
+with tab1:
+    st.markdown("Edit existing lenders or add new rows directly in the table:")
+    edited_lenders_df = st.data_editor(
+        st.session_state["lenders_df"],
+        num_rows="dynamic",
+        column_config={
+            "is_bank": st.column_config.SelectboxColumn("Is Bank", options=["Yes", "No"], default="Yes"),
+            "bank_id": st.column_config.TextColumn("Bank ID"),
+            "short": st.column_config.TextColumn("Short Name"),
+            "full": st.column_config.TextColumn("Full Name"),
+            "loc": st.column_config.TextColumn("Location"),
+            "pan": st.column_config.TextColumn("PAN"),
+            "grp": st.column_config.TextColumn("Group"),
+            "cls": st.column_config.SelectboxColumn("Lender Class", options=["Bank", "Corporate", "NBFC"], default="Bank"),
+            "typ": st.column_config.TextColumn("Lender Type"),
+            "sub": st.column_config.TextColumn("Lender Sub Type"),
+        },
+        key="lender_editor"
+    )
+    st.session_state["lenders_df"] = edited_lenders_df
+
+with tab2:
+    st.markdown("Edit instrument properties (Revolving, Sub Limits, Currency) or add custom instruments:")
+    edited_inst_df = st.data_editor(
+        st.session_state["inst_df"],
+        num_rows="dynamic",
+        column_config={
+            "Instrument": st.column_config.TextColumn("Instrument Name"),
+            "Revolving": st.column_config.CheckboxColumn("Revolving"),
+            "Has Sub Limits": st.column_config.CheckboxColumn("Has Sub Limits"),
+            "Currency": st.column_config.SelectboxColumn("Currency", options=["INR", "USD", "EUR", "GBP", "JPY", "CHF", "CAD", "SGD", "SEK", "QAR"], default="INR"),
+        },
+        key="inst_editor"
+    )
+    st.session_state["inst_df"] = edited_inst_df
 
 st.markdown("---")
 
@@ -306,26 +381,44 @@ summary = pd.DataFrame([
     {"Setting": "WCDL Deals", "Value": str(n_wcdl)},
     {"Setting": "Fiscal Year", "Value": str(fiscal_year)},
     {"Setting": "Start Date", "Value": str(start_date)},
-    {"Setting": "Lenders", "Value": f"{len(selected_lenders)} selected"},
-    {"Setting": "Instruments", "Value": f"{len(selected_instruments)} selected"},
+    {"Setting": "Lenders", "Value": f"{len(selected_lender_names)} selected"},
+    {"Setting": "Instruments", "Value": f"{len(selected_inst_names)} selected"},
 ])
 st.table(summary)
 
 st.markdown("---")
 
+# Filter selected lenders and instruments dictionary
+active_lenders = [
+    row.to_dict() for _, row in st.session_state["lenders_df"].iterrows()
+    if row["full"] in selected_lender_names
+]
+
+active_inst_rules = {}
+for _, row in st.session_state["inst_df"].iterrows():
+    if row["Instrument"] in selected_inst_names:
+        active_inst_rules[str(row["Instrument"])] = {
+            "rev": bool(row.get("Revolving", False)),
+            "sub": bool(row.get("Has Sub Limits", False)),
+            "curr": str(row.get("Currency", "INR"))
+        }
+
+active_inst_names = list(active_inst_rules.keys())
+
 # --- Generate Button ---
 if st.button("🚀 Generate Files", type="primary", use_container_width=True):
-    if not selected_lenders or not selected_instruments:
+    if not active_lenders or not active_inst_names:
         st.error("⚠️ Please select at least 1 lender and 1 instrument.")
     else:
         with st.spinner("Generating files... Please wait..."):
             random.seed(random_seed)
 
-            # Generate all 3 workbooks
-            lender_wb = gen_lender_wb(selected_lenders)
+            # Generate all 3 workbooks using editable & selected parameters
+            lender_wb = gen_lender_wb(active_lenders)
             sanction_wb = gen_sanction_wb(n_sanctions, fiscal_year, start_date,
-                                          company_name, selected_lenders, selected_instruments)
-            wcdl_wb = gen_wcdl_wb(n_wcdl, fiscal_year, company_name, selected_lenders)
+                                          company_name, active_lenders, active_inst_names,
+                                          inst_rules=active_inst_rules)
+            wcdl_wb = gen_wcdl_wb(n_wcdl, fiscal_year, company_name, active_lenders)
 
             # Create ZIP
             zip_buf = io.BytesIO()
